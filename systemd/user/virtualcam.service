@@ -1,0 +1,17 @@
+[Unit]
+Description=On-demand virtual webcam bridge for Dell Latitude 9440 IPU6 camera
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/start-virtualcam
+Restart=always
+RestartSec=3
+TimeoutStopSec=8
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=VIRTUALCAM_DEVICE=/dev/video42
+
+[Install]
+WantedBy=default.target
+

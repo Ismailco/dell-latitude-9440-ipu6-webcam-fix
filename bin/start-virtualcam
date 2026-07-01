@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+device=${VIRTUALCAM_DEVICE:-/dev/video42}
+width=${VIRTUALCAM_WIDTH:-1280}
+height=${VIRTUALCAM_HEIGHT:-720}
+framerate=${VIRTUALCAM_FRAMERATE:-30/1}
+format=${VIRTUALCAM_FORMAT:-YUY2}
+poll_interval=${VIRTUALCAM_POLL_INTERVAL:-0.5}
+idle_delay=${VIRTUALCAM_IDLE_DELAY:-1.5}
+caps="video/x-raw,format=${format},width=${width},height=${height},framerate=${framerate}"
+
+writer_pid=
+writer_mode=
+
+log() {
+  printf '[virtualcam] %s\n' "$*" >&2
+}
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    log "missing required command: $1"
+    exit 127
+  fi
+}
+
+wait_for_device() {
+  for _ in {1..50}; do
+    [[ -e "$device" ]] && return 0
+    sleep 0.2
+  done
+
+  log "device $device did not appear"
+  return 1
+}
+
+stop_writer() {
+  if [[ -n "${writer_pid:-}" ]] && kill -0 "$writer_pid" 2>/dev/null; then
+    kill "$writer_pid" 2>/dev/null || true
+    wait "$writer_pid" 2>/dev/null || true
+  fi
+
+  writer_pid=
+}
+
+start_idle_writer() {
+  stop_writer
+  writer_mode=idle
+  log "starting idle placeholder"
+
+  gst-launch-1.0 -q videotestsrc pattern=black is-live=true ! \
+    "$caps" ! \
+    v4l2sink device="$device" sync=false &
+
+  writer_pid=$!
+}
+
+start_camera_writer() {
+  stop_writer
+  writer_mode=camera
+  log "starting real camera"
+
+  gst-launch-1.0 -q libcamerasrc ! \
+    queue leaky=downstream max-size-buffers=4 ! \
+    videoconvert ! \
+    videoscale ! \
+    "$caps" ! \
+    v4l2sink device="$device" sync=false &
+
+  writer_pid=$!
+}
+
+writer_is_alive() {
+  [[ -n "${writer_pid:-}" ]] && kill -0 "$writer_pid" 2>/dev/null
+}
+
+consumer_is_present() {
+  local pid
+
+  for pid in $(fuser "$device" 2>/dev/null || true); do
+    [[ "$pid" == "$writer_pid" ]] && continue
+    return 0
+  done
+
+  return 1
+}
+
+cleanup() {
+  stop_writer
+}
+
+terminate() {
+  cleanup
+  exit 0
+}
+
+trap cleanup EXIT
+trap terminate INT TERM
+
+require_command gst-launch-1.0
+require_command fuser
+wait_for_device
+start_idle_writer
+
+idle_since=
+
+while true; do
+  if ! writer_is_alive; then
+    log "$writer_mode writer exited; restarting"
+    if [[ "$writer_mode" == camera ]]; then
+      start_camera_writer
+    else
+      start_idle_writer
+    fi
+  fi
+
+  if consumer_is_present; then
+    idle_since=
+    if [[ "$writer_mode" != camera ]]; then
+      start_camera_writer
+    fi
+  elif [[ "$writer_mode" == camera ]]; then
+    if [[ -z "${idle_since:-}" ]]; then
+      idle_since=$(date +%s.%N)
+    elif awk -v start="$idle_since" -v delay="$idle_delay" \
+      'BEGIN { exit !((systime() - start) >= delay) }'; then
+      start_idle_writer
+      idle_since=
+    fi
+  fi
+
+  sleep "$poll_interval"
+done
+
