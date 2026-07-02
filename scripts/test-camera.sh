@@ -6,6 +6,7 @@ width=${VIRTUALCAM_WIDTH:-1280}
 height=${VIRTUALCAM_HEIGHT:-720}
 framerate=${VIRTUALCAM_FRAMERATE:-30/1}
 format=${VIRTUALCAM_FORMAT:-YUY2}
+idle_delay=${VIRTUALCAM_IDLE_DELAY:-10}
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -32,9 +33,10 @@ timeout 15 gst-launch-1.0 -q v4l2src device="$device" num-buffers=120 ! \
   video/x-raw,format="${format}",width="${width}",height="${height}",framerate="${framerate}" ! \
   fakesink
 
-sleep 3
+idle_wait=$(awk -v delay="$idle_delay" 'BEGIN { printf "%.3f", delay + 3 }')
+sleep "$idle_wait"
 
-printf 'Current device users after idle delay:\n'
+printf 'Current device users after %s seconds idle wait:\n' "$idle_wait"
 fuser -v "$device" /dev/video0 /dev/media0 || true
 
 printf 'Camera test passed.\n'

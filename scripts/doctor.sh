@@ -6,7 +6,12 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$script_dir/common.sh"
 
 required_packages=(
+  base-devel
+  git
+  dkms
+  linux-firmware-intel
   libcamera
+  libcamera-tools
   pipewire-libcamera
   gst-plugin-libcamera
   gstreamer
@@ -81,6 +86,22 @@ else
   warn "pacman not found"
 fi
 
+section "Kernel Headers"
+if command -v pacman >/dev/null 2>&1; then
+  module_dir=/usr/lib/modules/$(uname -r)
+  if [[ -r "$module_dir/pkgbase" ]]; then
+    kernel_pkgbase=$(<"$module_dir/pkgbase")
+    header_package=${kernel_pkgbase}-headers
+    if pacman -Q "$header_package" >/dev/null 2>&1; then
+      pacman -Q "$header_package"
+    else
+      warn "missing active kernel headers package $header_package"
+    fi
+  else
+    warn "cannot detect active kernel package from $module_dir/pkgbase"
+  fi
+fi
+
 section "Kernel Modules"
 for module in "${expected_modules[@]}"; do
   if lsmod | awk '{print $1}' | grep -qx "$module"; then
@@ -92,7 +113,13 @@ done
 
 section "DKMS"
 if command -v dkms >/dev/null 2>&1; then
-  dkms status || true
+  dkms_status=$(dkms status 2>/dev/null || true)
+  printf '%s\n' "$dkms_status"
+  if grep -Eiq '(^|/)(intel-)?ipu6|ipu6-drivers' <<<"$dkms_status"; then
+    ok "IPU6 DKMS provider found"
+  else
+    warn "no IPU6 DKMS provider found; bootstrap installs intel-ipu6-dkms-git from AUR"
+  fi
 else
   warn "dkms not found"
 fi

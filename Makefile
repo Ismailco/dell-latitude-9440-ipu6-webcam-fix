@@ -1,6 +1,9 @@
 PREFIX ?= /usr/local
 
-.PHONY: doctor install uninstall test
+.PHONY: bootstrap doctor install uninstall test
+
+bootstrap:
+	./scripts/bootstrap-arch.sh
 
 doctor:
 	./scripts/doctor.sh
@@ -13,4 +16,3 @@ uninstall:
 
 test:
 	./scripts/test-camera.sh
-

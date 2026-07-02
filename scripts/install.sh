@@ -57,6 +57,7 @@ require_command install
 require_command systemctl
 require_command gst-launch-1.0
 require_command fuser
+require_command v4l2-ctl
 
 install -Dm755 "$root/bin/start-virtualcam" "$HOME/.local/bin/start-virtualcam"
 install -Dm644 "$root/systemd/user/virtualcam.service" \
@@ -90,4 +91,3 @@ Next:
   ./scripts/doctor.sh
   ./scripts/test-camera.sh
 DONE
-

@@ -3,9 +3,9 @@
 Arch Linux helper repo for the Dell Latitude 9440 / 9440 2-in-1 IPU6 webcam,
 tested with the `ov02c10` sensor and a v4l2loopback device at `/dev/video42`.
 
-This repo does not replace Arch's `libcamera`, does not install packages from
-the `archlinux-ipu6-webcam` PR branch, and does not clone unpinned driver code.
-It configures the known-good final userspace bridge we verified locally.
+This repo installs the Arch userspace packages, current-kernel headers,
+v4l2loopback configuration, user service, and the current AUR IPU6 DKMS driver
+package needed for the known-good `libcamera` bridge we verified locally.
 
 ## What It Does
 
@@ -23,7 +23,10 @@ It configures the known-good final userspace bridge we verified locally.
 - Keeps the real IPU6 camera off while idle.
 - Starts the real `libcamerasrc` pipeline only while an app is actually using
   `/dev/video42`.
-- Switches back to an idle black placeholder after the camera app closes.
+- Keeps the real camera active for a short idle grace period after the app
+  closes, then switches back to an idle black placeholder.
+- Uses v4l2loopback frame-hold controls during writer swaps so apps are less
+  likely to see a hard stream break.
 
 The placeholder is intentional. With `v4l2loopback exclusive_caps=1`, the
 virtual camera may disappear as a capture device when no writer is attached.
@@ -41,10 +44,28 @@ Known-good target:
 
 The installer refuses other models unless you pass `--force`.
 
+## New Arch Install
+
+On a fresh Arch install:
+
+```bash
+./scripts/bootstrap-arch.sh
+reboot
+./scripts/doctor.sh
+./scripts/test-camera.sh
+```
+
+The bootstrap script installs official Arch packages with `pacman`, installs
+the matching headers for the running kernel, builds `intel-ipu6-dkms-git` from
+AUR, and then runs the bridge installer.
+
+Read [docs/new-arch-install.md](docs/new-arch-install.md) for the full package
+list, AUR handling, and kernel-update notes.
+
 ## Required Driver Stack
 
-This repo assumes the kernel driver layer is already installed and loadable.
-Run:
+If you are not using the bootstrap script, install the driver layer and packages
+manually, then run:
 
 ```bash
 ./scripts/doctor.sh
@@ -66,7 +87,13 @@ v4l2loopback
 Expected Arch packages include:
 
 ```text
+base-devel
+git
+dkms
+linux-firmware-intel
+<active-kernel>-headers
 libcamera
+libcamera-tools
 pipewire-libcamera
 gst-plugin-libcamera
 gstreamer
@@ -80,11 +107,23 @@ pipewire
 psmisc
 ```
 
-For IPU6 DKMS drivers, use a trusted package source for your kernel and inspect
-the build scripts before installing. This repo intentionally does not vendor or
-automatically install that driver layer.
+Expected AUR driver package for a new bootstrap:
+
+```text
+intel-ipu6-dkms-git
+```
+
+Always inspect AUR `PKGBUILD` files before building them.
 
 ## Install
+
+For a complete fresh install, prefer:
+
+```bash
+./scripts/bootstrap-arch.sh
+```
+
+If packages and drivers are already installed:
 
 ```bash
 ./scripts/doctor.sh
@@ -108,6 +147,20 @@ manage that yourself.
 Select `VirtualCam` as the camera. Browser permission prompts still work at the
 browser/app layer. This service only sees whether a process opened
 `/dev/video42`; it cannot know which website triggered the browser request.
+
+The installed service uses `VIRTUALCAM_MODE=on-demand`. It keeps the real
+camera active for `VIRTUALCAM_IDLE_DELAY` seconds after the last detected
+consumer before switching back to the placeholder. The default is `10` seconds.
+
+The bridge also sets v4l2loopback `sustain_framerate=1` and a
+`VIRTUALCAM_LOOPBACK_TIMEOUT` frame-hold window while switching writers. The
+default timeout is `5000` milliseconds.
+
+If an app still cannot tolerate on-demand switching, the fallback is:
+
+```ini
+Environment=VIRTUALCAM_MODE=always-on
+```
 
 Idle check:
 
@@ -138,4 +191,3 @@ To also remove the loopback module config files if they still match this repo:
 `libcamera` may log warnings about missing `ov02c10` static properties and an
 uncalibrated fallback. Those warnings were present in the working setup and are
 not, by themselves, a failure.
-
