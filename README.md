@@ -23,7 +23,10 @@ It configures the known-good final userspace bridge we verified locally.
 - Keeps the real IPU6 camera off while idle.
 - Starts the real `libcamerasrc` pipeline only while an app is actually using
   `/dev/video42`.
-- Switches back to an idle black placeholder after the camera app closes.
+- Uses v4l2loopback frame-hold controls during the placeholder-to-camera swap
+  so apps are less likely to see a hard stream break.
+- Supports an optional always-on mode if a specific app cannot tolerate
+  on-demand switching.
 
 The placeholder is intentional. With `v4l2loopback exclusive_caps=1`, the
 virtual camera may disappear as a capture device when no writer is attached.
@@ -109,6 +112,25 @@ Select `VirtualCam` as the camera. Browser permission prompts still work at the
 browser/app layer. This service only sees whether a process opened
 `/dev/video42`; it cannot know which website triggered the browser request.
 
+The installed service uses `VIRTUALCAM_MODE=on-demand`. If an app turns the
+camera on and then immediately falls back to no video, make sure it selected
+`VirtualCam`, not the raw `ov02c10` or `ipu6` device.
+
+In on-demand mode, the bridge keeps the real camera active for
+`VIRTUALCAM_IDLE_DELAY` seconds after the last detected consumer before
+switching back to the placeholder. The default is `10` seconds.
+
+The bridge also sets v4l2loopback `sustain_framerate=1` and a
+`VIRTUALCAM_LOOPBACK_TIMEOUT` frame-hold window while switching writers. The
+default timeout is `5000` milliseconds.
+
+If an app still cannot tolerate on-demand switching, the fallback is always-on
+mode:
+
+```ini
+Environment=VIRTUALCAM_MODE=always-on
+```
+
 Idle check:
 
 ```bash
@@ -138,4 +160,3 @@ To also remove the loopback module config files if they still match this repo:
 `libcamera` may log warnings about missing `ov02c10` static properties and an
 uncalibrated fallback. Those warnings were present in the working setup and are
 not, by themselves, a failure.
-

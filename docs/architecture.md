@@ -44,11 +44,13 @@ exclusive_caps=1
 
 The real IPU6 camera is bridged into that loopback device with GStreamer.
 
-## 4. On-Demand Supervisor
+## 4. Runtime Supervisor
 
 If no writer is attached, `exclusive_caps=1` can make the virtual camera stop
-appearing as a capture device. To preserve normal app discovery without keeping
-the real camera active, the user service does this:
+appearing as a capture device. The user service keeps one writer attached to
+`/dev/video42`.
+
+Default `on-demand` mode is optimized for power/privacy:
 
 ```text
 idle:
@@ -58,10 +60,24 @@ while an app consumes /dev/video42:
   libcamerasrc -> /dev/video42
 
 after the app closes:
+  wait for the idle grace period
   black placeholder -> /dev/video42
 ```
 
-The supervisor detects consumers with `fuser /dev/video42`. It cannot know
-which website triggered browser camera access; browser permission prompts still
-happen in the browser.
+In on-demand mode, the supervisor detects consumers with `fuser /dev/video42`.
+It cannot know which website triggered browser camera access; browser
+permission prompts still happen in the browser.
 
+The idle grace period defaults to 10 seconds and is controlled with
+`VIRTUALCAM_IDLE_DELAY`. The loopback frame-hold timeout defaults to 5000
+milliseconds and is controlled with `VIRTUALCAM_LOOPBACK_TIMEOUT`.
+
+Optional `always-on` mode is a compatibility fallback:
+
+```text
+while the service is running:
+  libcamerasrc -> /dev/video42
+```
+
+This avoids interrupting the stream after an app has already opened the virtual
+camera, but keeps the real camera active while the service is running.
